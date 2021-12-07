@@ -116,6 +116,7 @@ def bar_chart_in_out(paper) -> None :
   bx = sns.barplot(x=l ,y= ys, palette="Blues_d")
   st.pyplot(fig)
 
+# Group Citations by Year
 def cpi(paper) -> None :
   cits = paper['citations']
   years = []
@@ -128,6 +129,67 @@ def cpi(paper) -> None :
   cx = sns.barplot(x = unique, y = counts)
   cx.set(xlabel = 'years', ylabel = 'number of citing papers')  
   st.pyplot(fig)
+
+
+def pre_process(abstract):
+	stop_words = set(stopwords.words('english'))
+	abstract = re.sub(r'[^\w\s]','',abstract)
+	word_tokens = word_tokenize(abstract) # tokenise the words
+	words = [w for w in word_tokens if not w.lower() in stop_words] #filter the words
+	return words
+
+# Function to check if the word is present in a sentence list
+def check_sent(word, sentences): 
+    final = [all([w in x for w in word]) for x in sentences] 
+    sent_len = [sentences[i] for i in range(0, len(final)) if final[i]]
+    return int(len(sent_len))
+
+# Return top n-most keywords
+def get_top_n(dict_elem, n):
+    result = dict(sorted(dict_elem.items(), key = itemgetter(1), reverse = True)[:n]) 
+    return result
+
+ # TF-IDF for Keyword Extraction
+ def tf_idf(abstract):
+ 	pre_process(abstract)
+ 	# Calculate TF - Term Frequency 
+ 	tf_score = {}
+	for each_word in words:
+	    each_word = each_word.replace('.','')
+	    if each_word not in stop_words:
+	        if each_word in tf_score:
+	            tf_score[each_word] += 1
+	        else:
+	            tf_score[each_word] = 1
+
+	tf_score.update((x, y/int(total_word_length)) for x, y in tf_score.items())
+
+	# Calculate IDF - Inverse Document Frequency 
+	idf_score = {}
+	for each_word in words:
+	    each_word = each_word.replace('.','')
+	    if each_word not in stop_words:
+	        if each_word in idf_score:
+	            idf_score[each_word] = check_sent(each_word, total_sentences)
+	        else:
+	            idf_score[each_word] = 1
+
+	idf_score.update((x, math.log(int(total_sent_len)/y)) for x, y in idf_score.items())
+
+	tf_idf_score = {key: tf_score[key] * idf_score.get(key, 0) for key in tf_score.keys()}
+	res = get_top_n(tf_idf_score, 10)
+	return res
+
+# Generate Word Cloud	
+def wrdcld(keywords)->None: 
+  unique_string=(" ").join(keywords)
+  wordcloud = WordCloud(width = 1000, height = 500).generate(unique_string)
+  plt.figure(figsize=(15,8))
+  plt.imshow(wordcloud)
+  plt.axis("off")
+  plt.savefig("your_file_name"+".png", bbox_inches='tight')
+  plt.show()
+  plt.close()
 
 def main():
 
@@ -155,10 +217,20 @@ def main():
 	if choice == "Visualize":
 		doi = get_doi()
 		paper = sch.paper(doi)
+
+		# GRAPHS 
 		st.text("In Citations vs Out Citations")
 		bar_chart_in_out(paper)
 		st.text("Citations Grouped by Years")
 		cpi(paper)
+
+		# KEYWORD EXTRACTION 
+		abstract = paper['abstract']
+
+		tf_idf_result = tf_idf(abstract) # returns keywords 
+		wrdcld(tf_idf_result)
+
+		# rake(abstract)
 
 
 
