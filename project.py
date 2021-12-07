@@ -26,6 +26,7 @@ import re
 from wordcloud import WordCloud
 nltk.download('stopwords')
 nltk.download('punkt')
+from typing import Callable, DefaultDict, Dict, List, Optional, Set, Tuple
 # Front End
 import streamlit as st 
 
@@ -150,34 +151,44 @@ def get_top_n(dict_elem, n):
     return result
 
  # TF-IDF for Keyword Extraction
- def tf_idf(abstract):
- 	pre_process(abstract)
- 	# Calculate TF - Term Frequency 
- 	tf_score = {}
+def tf_idf(abstract):
+	words = pre_process(abstract)
+	stop_words = set(stopwords.words('english'))
+
+	# Total Words in the Abstract
+	total_words = abstract.split()
+	total_word_length = len(total_words)
+
+	# Total Sentences in the Abstract
+	total_sentences = tokenize.sent_tokenize(abstract)
+	total_sent_len = len(total_sentences)
+
+	# Calculate TF - Term Frequency 
+	tf_score = {}
 	for each_word in words:
-	    each_word = each_word.replace('.','')
-	    if each_word not in stop_words:
-	        if each_word in tf_score:
-	            tf_score[each_word] += 1
-	        else:
-	            tf_score[each_word] = 1
+		each_word = each_word.replace('.','')
+		if each_word not in stop_words:
+			if each_word in tf_score:
+				tf_score[each_word] += 1
+			else:
+				tf_score[each_word] = 1
 
 	tf_score.update((x, y/int(total_word_length)) for x, y in tf_score.items())
 
 	# Calculate IDF - Inverse Document Frequency 
 	idf_score = {}
 	for each_word in words:
-	    each_word = each_word.replace('.','')
-	    if each_word not in stop_words:
-	        if each_word in idf_score:
-	            idf_score[each_word] = check_sent(each_word, total_sentences)
-	        else:
-	            idf_score[each_word] = 1
+		each_word = each_word.replace('.','')
+		if each_word not in stop_words:
+			if each_word in idf_score:
+				idf_score[each_word] = check_sent(each_word, total_sentences)
+			else:
+				idf_score[each_word] = 1
 
 	idf_score.update((x, math.log(int(total_sent_len)/y)) for x, y in idf_score.items())
 
 	tf_idf_score = {key: tf_score[key] * idf_score.get(key, 0) for key in tf_score.keys()}
-	res = get_top_n(tf_idf_score, 10)
+	res = get_top_n(tf_idf_score, 15)
 	return res
 
 # Generate Word Cloud	
@@ -187,9 +198,162 @@ def wrdcld(keywords)->None:
   plt.figure(figsize=(15,8))
   plt.imshow(wordcloud)
   plt.axis("off")
-  plt.savefig("your_file_name"+".png", bbox_inches='tight')
+  fig = plt.figure(figsize=(10, 4))
   plt.show()
-  plt.close()
+  st.pyplot(fig)
+
+# Readability type definitions.
+Word = str
+Sentence = str
+Phrase = Tuple[str, ...]
+
+
+class Metric(Enum):
+    """Different metrics that can be used for ranking."""
+
+    DEGREE_TO_FREQUENCY_RATIO = 0  # Uses d(w)/f(w) as the metric
+    WORD_DEGREE = 1  # Uses d(w) alone as the metric
+    WORD_FREQUENCY = 2  # Uses f(w) alone as the metric
+
+class Rake:
+
+	def __init__(
+		self,
+		stopwords: Optional[Set[str]] = None,
+		punctuations: Optional[Set[str]] = None,
+		language: str = 'english',
+		ranking_metric: Metric = Metric.DEGREE_TO_FREQUENCY_RATIO,
+		max_length: int = 100000,
+		min_length: int = 1,
+		include_repeated_phrases: bool = True,
+		sentence_tokenizer: Optional[Callable[[str], List[str]]] = None,
+		word_tokenizer: Optional[Callable[[str], List[str]]] = None,
+	):
+
+        # By default use degree to frequency ratio as the metric.
+		if isinstance(ranking_metric, Metric):
+			self.metric = ranking_metric
+		else:
+			self.metric = Metric.DEGREE_TO_FREQUENCY_RATIO
+
+        # If stopwords not provided we use language stopwords by default.
+		self.stopwords: Set[str]
+		if stopwords:
+			self.stopwords = stopwords
+		else:
+			self.stopwords = set(nltk.corpus.stopwords.words(language))
+
+        # If punctuations are not provided we ignore all punctuation symbols.
+		self.punctuations: Set[str]
+		if punctuations:
+			self.punctuations = punctuations
+		else:
+			self.punctuations = set(string.punctuation)
+
+        # All things which act as sentence breaks during keyword extraction.
+		self.to_ignore: Set[str] = set(chain(self.stopwords, self.punctuations))
+
+		# Assign min or max length to the attributes
+		self.min_length: int = min_length
+		self.max_length: int = max_length
+
+        # Whether we should include repeated phreases in the computation or not.
+		self.include_repeated_phrases: bool = include_repeated_phrases
+
+        # Tokenizers.
+		self.sentence_tokenizer: Callable[[str], List[str]]
+		if sentence_tokenizer:
+			self.sentence_tokenizer = sentence_tokenizer
+		else:
+			self.sentence_tokenizer = nltk.tokenize.sent_tokenize
+		self.word_tokenizer: Callable[[str], List[str]]
+
+		if word_tokenizer:
+			self.word_tokenizer = word_tokenizer
+		else:
+			self.word_tokenizer = nltk.tokenize.wordpunct_tokenize
+
+		# Stuff to be extracted from the provided text.
+		self.frequency_dist: Dict[Word, int]
+		self.degree: Dict[Word, int]
+		self.rank_list: List[Tuple[float, Sentence]]
+		self.ranked_phrases: List[Sentence]
+
+	def extract_keywords_from_text(self, text: str):
+		sentences: List[Sentence] = self._tokenize_text_to_sentences(text)
+		self.extract_keywords_from_sentences(sentences)
+
+	def extract_keywords_from_sentences(self, sentences: List[Sentence]):
+		phrase_list: List[Phrase] = self._generate_phrases(sentences)
+		self._build_frequency_dist(phrase_list)
+		self._build_word_co_occurance_graph(phrase_list)
+		self._build_ranklist(phrase_list)
+
+	def get_ranked_phrases(self) -> List[Sentence]:
+		return self.ranked_phrases
+
+
+	def _tokenize_text_to_sentences(self, text: str) -> List[Sentence]:
+		return self.sentence_tokenizer(text)
+
+	def _tokenize_sentence_to_words(self, sentence: Sentence) -> List[Word]:
+		return self.word_tokenizer(sentence)
+
+	def _build_frequency_dist(self, phrase_list: List[Phrase]) -> None:
+		self.frequency_dist = Counter(chain.from_iterable(phrase_list))
+
+	def _build_word_co_occurance_graph(self, phrase_list: List[Phrase]) -> None:
+		co_occurance_graph: DefaultDict[Word, DefaultDict[Word, int]] = defaultdict(lambda: defaultdict(lambda: 0))
+		for phrase in phrase_list:
+			for (word, coword) in product(phrase, phrase):
+				co_occurance_graph[word][coword] += 1
+
+		self.degree = defaultdict(lambda: 0)
+		for key in co_occurance_graph:
+			self.degree[key] = sum(co_occurance_graph[key].values())
+
+	def _build_ranklist(self, phrase_list: List[Phrase]):
+		self.rank_list = []
+		for phrase in phrase_list:
+			rank = 0.0
+		for word in phrase:
+			if self.metric == Metric.DEGREE_TO_FREQUENCY_RATIO:
+				rank += 1.0 * self.degree[word] / self.frequency_dist[word]
+			elif self.metric == Metric.WORD_DEGREE:
+				rank += 1.0 * self.degree[word]
+			else:
+				rank += 1.0 * self.frequency_dist[word]
+			self.rank_list.append((rank, ' '.join(phrase)))
+		self.rank_list.sort(reverse=True)
+		self.ranked_phrases = [ph[1] for ph in self.rank_list]
+
+	def _generate_phrases(self, sentences: List[Sentence]) -> List[Phrase]:
+		phrase_list: List[Phrase] = []
+        # Create contender phrases from sentences.
+		for sentence in sentences:
+			word_list: List[Word] = [word.lower() for word in self._tokenize_sentence_to_words(sentence)]
+			phrase_list.extend(self._get_phrase_list_from_words(word_list))
+
+			# Based on user's choice to include or not include repeated phrases
+			# we compute the phrase list and return it. If not including repeated
+			# phrases, we only include the first occurance of the phrase and drop
+			# the rest.
+			if not self.include_repeated_phrases:
+				unique_phrase_tracker: Set[Phrase] = set()
+				non_repeated_phrase_list: List[Phrase] = []
+				for phrase in phrase_list:
+					if phrase not in unique_phrase_tracker:
+						unique_phrase_tracker.add(phrase)
+						non_repeated_phrase_list.append(phrase)
+				return non_repeated_phrase_list
+
+			return phrase_list
+
+	def _get_phrase_list_from_words(self, word_list: List[Word]) -> List[Phrase]:
+		groups = groupby(word_list, lambda x: x not in self.to_ignore)
+		phrases: List[Phrase] = [tuple(group[1]) for group in groups if group[0]]
+		return list(filter(lambda x: self.min_length <= len(x) <= self.max_length, phrases))
+
 
 def main():
 
@@ -198,7 +362,7 @@ def main():
 	# create instance of semantic scholar class
 	sch = SemanticScholar(timeout=2)
 	# Sidebar contents 
-	menu = ["Home","Overview","Visualize"]
+	menu = ["Home","Overview","Visualize","Impact Factor"]
 	
 	choice = st.sidebar.selectbox("Menu",menu)
 
@@ -209,30 +373,44 @@ def main():
 
 	if choice == "Overview":
 		doi = get_doi()
-		paper = sch.paper(doi)
-		for key in paper.keys():
-			if key not in ["citations","references","isOpenAccess","isPublisherLicensed","is_publisher_licensed","is_open_access","topics","venue"]:
-				st.write(f"{key} : {paper[key]}") 
+		if len(doi) != 0 :
+			paper = sch.paper(doi)
+			for key in paper.keys():
+				if key not in ["citations","references","isOpenAccess","isPublisherLicensed","is_publisher_licensed","is_open_access","topics","venue"]:
+					st.write(f"{key} : {paper[key]}")
 
 	if choice == "Visualize":
 		doi = get_doi()
-		paper = sch.paper(doi)
+		if len(doi) != 0:
+			paper = sch.paper(doi)
 
-		# GRAPHS 
-		st.text("In Citations vs Out Citations")
-		bar_chart_in_out(paper)
-		st.text("Citations Grouped by Years")
-		cpi(paper)
+			# GRAPHS 
+			st.text("In Citations vs Out Citations")
+			bar_chart_in_out(paper)
+			st.text("Citations Grouped by Years")
+			cpi(paper)
 
-		# KEYWORD EXTRACTION 
-		abstract = paper['abstract']
+			# KEYWORD EXTRACTION 
+			abstract = paper['abstract']
 
-		tf_idf_result = tf_idf(abstract) # returns keywords 
-		wrdcld(tf_idf_result)
+			tf_idf_result = tf_idf(abstract) # returns keywords 
+			keywords = tf_idf_result.keys()
+			keywords = list(keywords)
+			# st.write(keywords)
+			# wrdcld(keywords)
 
-		# rake(abstract)
+			r = Rake()
+			r.extract_keywords_from_text(abstract)
+			keywords = r.get_ranked_phrases()
+			wrdcld(keywords)
 
-
+	if choice == "Impact Factor":
+		doi = get_doi()
+		if len(doi) != 0 :
+			paper = sch.paper(doi)
+			im = 0 
+			im = paper['influentialCitationCount']/paper['numCitedBy']
+			st.write(f"Impact Factor : {im}")
 
 if __name__ == '__main__':
 	main()
