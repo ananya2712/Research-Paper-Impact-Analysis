@@ -395,6 +395,9 @@ def main():
 		# st.subheader("Home")
 		st.markdown(html_temp.format('indigo','white'),unsafe_allow_html=True)
 		st.markdown("<h1 style='text-align: center; color: AliceBlue; font-size:25px'>A simple and interactive tool to visualise research paper impact</h1>", unsafe_allow_html=True)
+		st.markdown("<h4 style='text-align: center; color: AliceBlue; font-size:15px'>RePI  helps you visualise the Impact of any published Research Paper or Article based on the Digital Object Identifier (DOI)</h4>", unsafe_allow_html=True)
+
+
 
 	if choice == "Overview":
 		doi = get_doi()
@@ -455,12 +458,8 @@ def main():
 				keyw2 = r.get_ranked_phrases()
 				keyw1.extend(keyw2)
 				count +=1
-			
-			#print(keyw1)
-			wrdcld(keyw1)
 
-
-			
+			wrdcld(keyw1)			
 
 	if choice == "Impact Factor":
 		doi = get_doi()
@@ -468,7 +467,10 @@ def main():
 			paper = sch.paper(doi)
 			im = 0 
 			im = paper['influentialCitationCount']/paper['numCitedBy']
-			st.write(f"Impact Factor : {im}")
+			st.write("Impact Factor is a metric which gauges the paper impact.It can be calculated using the following formula :")
+			st.markdown("<h3 style='text-align: center; color: white;'>I.M = influentialCitationCount / numCitedBy</h1>", unsafe_allow_html=True)
+			st.write("According to some naive trials , an impact factor above 0.05 represents a good paper.")
+			st.markdown(f"Impact Factor : {im}")
 
 if __name__ == '__main__':
 	main()
