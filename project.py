@@ -195,10 +195,9 @@ def tf_idf(abstract):
 def wrdcld(keywords)->None: 
   unique_string=(" ").join(keywords)
   wordcloud = WordCloud(width = 1000, height = 500).generate(unique_string)
-  plt.figure(figsize=(15,8))
+  fig = plt.figure(figsize=(20,8))
   plt.imshow(wordcloud)
   plt.axis("off")
-  fig = plt.figure(figsize=(10, 4))
   plt.show()
   st.pyplot(fig)
 
@@ -373,11 +372,19 @@ def main():
 
 	if choice == "Overview":
 		doi = get_doi()
+		k = []
+		v = []
 		if len(doi) != 0 :
 			paper = sch.paper(doi)
 			for key in paper.keys():
 				if key not in ["citations","references","isOpenAccess","isPublisherLicensed","is_publisher_licensed","is_open_access","topics","venue"]:
-					st.write(f"{key} : {paper[key]}")
+					#st.write(f"{key} : {paper[key]}")
+					k.append(key)
+					v.append(str(paper[key]))
+			df = pd.DataFrame(list(zip(k, v)),columns =['Key', 'Value'])
+			st.table(df)
+			
+					
 
 	if choice == "Visualize":
 		doi = get_doi()
@@ -394,14 +401,16 @@ def main():
 			abstract = paper['abstract']
 
 			tf_idf_result = tf_idf(abstract) # returns keywords 
-			keywords = tf_idf_result.keys()
-			keywords = list(keywords)
+			keywords1 = tf_idf_result.keys()
+			keywords1 = list(keywords1)
 			# st.write(keywords)
 			# wrdcld(keywords)
 
 			r = Rake()
 			r.extract_keywords_from_text(abstract)
 			keywords = r.get_ranked_phrases()
+			#keywords = ['quantum mechanics systems known', 'loop quantum gravity known', 'rather nonstandard quantum representation', 'polymer quantum mechanics starting', 'ordinary schroedinger quantum mechanics', 'loop quantum cosmology', 'ordinary schroedinger theory', 'ordinary schroedinger theory', 'simple cosmological model', 'recent years due', 'planck scale physics', 'explore different aspects', 'canonical commutation relations', 'polymer description arises', 'consider several examples', 'polymer representation', 'polymer description', 'theory namely', 'discrete theory', 'two parts', 'symmetric sector', 'second part', 'reverse process', 'recover back', 'one starts', 'interest including', 'harmonic oscillator', 'free particle', 'first one', 'continuum limit', 'appropriate limit', 'possible relation', 'consider', 'relation', 'tries', 'show', 'particular', 'paper', 'gained', 'followed', 'derive', 'attention', 'approach']
+			#st.write(f"{keywords}")
 			wrdcld(keywords)
 
 	if choice == "Impact Factor":
