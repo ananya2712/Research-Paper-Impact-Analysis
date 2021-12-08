@@ -23,6 +23,7 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize 
 from nltk.tokenize import RegexpTokenizer
 import re
+from rake_nltk import Rake
 from wordcloud import WordCloud
 nltk.download('stopwords')
 nltk.download('punkt')
@@ -201,159 +202,6 @@ def wrdcld(keywords)->None:
   plt.show()
   st.pyplot(fig)
 
-# Readability type definitions.
-Word = str
-Sentence = str
-Phrase = Tuple[str, ...]
-
-
-class Metric(Enum):
-    """Different metrics that can be used for ranking."""
-
-    DEGREE_TO_FREQUENCY_RATIO = 0  # Uses d(w)/f(w) as the metric
-    WORD_DEGREE = 1  # Uses d(w) alone as the metric
-    WORD_FREQUENCY = 2  # Uses f(w) alone as the metric
-
-class Rake:
-
-	def __init__(
-		self,
-		stopwords: Optional[Set[str]] = None,
-		punctuations: Optional[Set[str]] = None,
-		language: str = 'english',
-		ranking_metric: Metric = Metric.DEGREE_TO_FREQUENCY_RATIO,
-		max_length: int = 100000,
-		min_length: int = 1,
-		include_repeated_phrases: bool = True,
-		sentence_tokenizer: Optional[Callable[[str], List[str]]] = None,
-		word_tokenizer: Optional[Callable[[str], List[str]]] = None,
-	):
-
-        # By default use degree to frequency ratio as the metric.
-		if isinstance(ranking_metric, Metric):
-			self.metric = ranking_metric
-		else:
-			self.metric = Metric.DEGREE_TO_FREQUENCY_RATIO
-
-        # If stopwords not provided we use language stopwords by default.
-		self.stopwords: Set[str]
-		if stopwords:
-			self.stopwords = stopwords
-		else:
-			self.stopwords = set(nltk.corpus.stopwords.words(language))
-
-        # If punctuations are not provided we ignore all punctuation symbols.
-		self.punctuations: Set[str]
-		if punctuations:
-			self.punctuations = punctuations
-		else:
-			self.punctuations = set(string.punctuation)
-
-        # All things which act as sentence breaks during keyword extraction.
-		self.to_ignore: Set[str] = set(chain(self.stopwords, self.punctuations))
-
-		# Assign min or max length to the attributes
-		self.min_length: int = min_length
-		self.max_length: int = max_length
-
-        # Whether we should include repeated phreases in the computation or not.
-		self.include_repeated_phrases: bool = include_repeated_phrases
-
-        # Tokenizers.
-		self.sentence_tokenizer: Callable[[str], List[str]]
-		if sentence_tokenizer:
-			self.sentence_tokenizer = sentence_tokenizer
-		else:
-			self.sentence_tokenizer = nltk.tokenize.sent_tokenize
-		self.word_tokenizer: Callable[[str], List[str]]
-
-		if word_tokenizer:
-			self.word_tokenizer = word_tokenizer
-		else:
-			self.word_tokenizer = nltk.tokenize.wordpunct_tokenize
-
-		# Stuff to be extracted from the provided text.
-		self.frequency_dist: Dict[Word, int]
-		self.degree: Dict[Word, int]
-		self.rank_list: List[Tuple[float, Sentence]]
-		self.ranked_phrases: List[Sentence]
-
-	def extract_keywords_from_text(self, text: str):
-		sentences: List[Sentence] = self._tokenize_text_to_sentences(text)
-		self.extract_keywords_from_sentences(sentences)
-
-	def extract_keywords_from_sentences(self, sentences: List[Sentence]):
-		phrase_list: List[Phrase] = self._generate_phrases(sentences)
-		self._build_frequency_dist(phrase_list)
-		self._build_word_co_occurance_graph(phrase_list)
-		self._build_ranklist(phrase_list)
-
-	def get_ranked_phrases(self) -> List[Sentence]:
-		return self.ranked_phrases
-
-
-	def _tokenize_text_to_sentences(self, text: str) -> List[Sentence]:
-		return self.sentence_tokenizer(text)
-
-	def _tokenize_sentence_to_words(self, sentence: Sentence) -> List[Word]:
-		return self.word_tokenizer(sentence)
-
-	def _build_frequency_dist(self, phrase_list: List[Phrase]) -> None:
-		self.frequency_dist = Counter(chain.from_iterable(phrase_list))
-
-	def _build_word_co_occurance_graph(self, phrase_list: List[Phrase]) -> None:
-		co_occurance_graph: DefaultDict[Word, DefaultDict[Word, int]] = defaultdict(lambda: defaultdict(lambda: 0))
-		for phrase in phrase_list:
-			for (word, coword) in product(phrase, phrase):
-				co_occurance_graph[word][coword] += 1
-
-		self.degree = defaultdict(lambda: 0)
-		for key in co_occurance_graph:
-			self.degree[key] = sum(co_occurance_graph[key].values())
-
-	def _build_ranklist(self, phrase_list: List[Phrase]):
-		self.rank_list = []
-		for phrase in phrase_list:
-			rank = 0.0
-		for word in phrase:
-			if self.metric == Metric.DEGREE_TO_FREQUENCY_RATIO:
-				rank += 1.0 * self.degree[word] / self.frequency_dist[word]
-			elif self.metric == Metric.WORD_DEGREE:
-				rank += 1.0 * self.degree[word]
-			else:
-				rank += 1.0 * self.frequency_dist[word]
-			self.rank_list.append((rank, ' '.join(phrase)))
-		self.rank_list.sort(reverse=True)
-		self.ranked_phrases = [ph[1] for ph in self.rank_list]
-
-	def _generate_phrases(self, sentences: List[Sentence]) -> List[Phrase]:
-		phrase_list: List[Phrase] = []
-        # Create contender phrases from sentences.
-		for sentence in sentences:
-			word_list: List[Word] = [word.lower() for word in self._tokenize_sentence_to_words(sentence)]
-			phrase_list.extend(self._get_phrase_list_from_words(word_list))
-
-			# Based on user's choice to include or not include repeated phrases
-			# we compute the phrase list and return it. If not including repeated
-			# phrases, we only include the first occurance of the phrase and drop
-			# the rest.
-			if not self.include_repeated_phrases:
-				unique_phrase_tracker: Set[Phrase] = set()
-				non_repeated_phrase_list: List[Phrase] = []
-				for phrase in phrase_list:
-					if phrase not in unique_phrase_tracker:
-						unique_phrase_tracker.add(phrase)
-						non_repeated_phrase_list.append(phrase)
-				return non_repeated_phrase_list
-
-			return phrase_list
-
-	def _get_phrase_list_from_words(self, word_list: List[Word]) -> List[Phrase]:
-		groups = groupby(word_list, lambda x: x not in self.to_ignore)
-		phrases: List[Phrase] = [tuple(group[1]) for group in groups if group[0]]
-		return list(filter(lambda x: self.min_length <= len(x) <= self.max_length, phrases))
-
-
 def main():
 
 	# st.markdown('<style>body{background-color: MidnightBlue;}</style>',unsafe_allow_html=True)
@@ -392,9 +240,9 @@ def main():
 			paper = sch.paper(doi)
 
 			# GRAPHS 
-			st.text("In Citations vs Out Citations")
+			st.subheader("In Citations vs Out Citations")
 			bar_chart_in_out(paper)
-			st.text("Citations Grouped by Years")
+			st.subheader("Citations Grouped by Years")
 			cpi(paper)
 
 			# KEYWORD EXTRACTION 
@@ -405,13 +253,36 @@ def main():
 			keywords1 = list(keywords1)
 			# st.write(keywords)
 			# wrdcld(keywords)
-
+			st.subheader("Wordcloud of keywords for the paper")
 			r = Rake()
 			r.extract_keywords_from_text(abstract)
 			keywords = r.get_ranked_phrases()
-			#keywords = ['quantum mechanics systems known', 'loop quantum gravity known', 'rather nonstandard quantum representation', 'polymer quantum mechanics starting', 'ordinary schroedinger quantum mechanics', 'loop quantum cosmology', 'ordinary schroedinger theory', 'ordinary schroedinger theory', 'simple cosmological model', 'recent years due', 'planck scale physics', 'explore different aspects', 'canonical commutation relations', 'polymer description arises', 'consider several examples', 'polymer representation', 'polymer description', 'theory namely', 'discrete theory', 'two parts', 'symmetric sector', 'second part', 'reverse process', 'recover back', 'one starts', 'interest including', 'harmonic oscillator', 'free particle', 'first one', 'continuum limit', 'appropriate limit', 'possible relation', 'consider', 'relation', 'tries', 'show', 'particular', 'paper', 'gained', 'followed', 'derive', 'attention', 'approach']
 			#st.write(f"{keywords}")
 			wrdcld(keywords)
+
+			#keywords wordcloud for citing papers
+			st.subheader("Wordcloud of keywords for all the works citing the paper")
+			cits = paper['citations']
+			dois = []
+			for i in cits:
+				dois.append(i.get('doi'))
+			res = [i for i in dois if i]
+			keyw1 = []
+			count = 0
+			for d in dois:
+				if count == 30:
+					break
+				pap = sch.paper(res[1]) 
+				r.extract_keywords_from_text(pap['abstract'])
+				keyw2 = r.get_ranked_phrases()
+				keyw1.extend(keyw2)
+				count +=1
+			
+			#print(keyw1)
+			wrdcld(keyw1)
+
+
+			
 
 	if choice == "Impact Factor":
 		doi = get_doi()
