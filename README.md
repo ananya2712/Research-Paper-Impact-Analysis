@@ -1,5 +1,5 @@
 # Research-Paper-Impact-Analysis
-A Mini Project completed as a part of Mini Project course at PES University.
+Completed as a part of Mini Project course at PES University.
 Takes a unique identifier such as DOI number for a paper and produces results to gauge the impact.
 The Impact Factor Metric is used to compare papers. 
 
